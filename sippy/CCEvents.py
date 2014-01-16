@@ -47,7 +47,7 @@ class CCEventGeneric(object):
         return self.data
 
     def getCopy(self):
-        cself = self.__class__(self.data, self.rtime, self.origin)
+        cself = CCEventGeneric(self.data, self.rtime, self.origin)
         if self.reason != None:
             cself.reason = self.reason.getCopy()
         if self.extra_header != None:
@@ -63,10 +63,6 @@ class CCEventTry(CCEventGeneric):
 
 class CCEventRing(CCEventGeneric):
     name = 'CCEventRing'
-    pass
-
-class CCEventPreConnect(CCEventGeneric):
-    name = 'CCEventPreConnect'
     pass
 
 class CCEventConnect(CCEventGeneric):
@@ -87,13 +83,7 @@ class CCEventDisconnect(CCEventGeneric):
 
 class CCEventFail(CCEventGeneric):
     name = 'CCEventFail'
-    challenge = None
-
-    def getCopy(self):
-        cself = CCEventGeneric.getCopy(self)
-        if self.challenge != None:
-            cself.challenge = self.challenge.getCopy()
-        return cself
+    pass
 
 class CCEventRedirect(CCEventGeneric):
     name = 'CCEventRedirect'

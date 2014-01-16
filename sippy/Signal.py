@@ -33,13 +33,19 @@ class Signal(object):
     previous_handler = None
 
     def __init__(self, signum, callback, *parameters):
-        self.signum = signum
         self.callback = callback
         self.parameters = parameters
         self.previous_handler = signal(signum, self.signal_handler)
 
     def signal_handler(self, signum, *frame):
-        reactor.callFromThread(self.dispatch)
+        try:
+            reactor.callFromThread(self.callback, *self.parameters)
+        except:
+            print datetime.now(), 'Signal: unhandled exception in signal callback'
+            print '-' * 70
+            print_exc(file = stdout)
+            print '-' * 70
+            stdout.flush()
         if self.previous_handler not in (SIG_IGN, SIG_DFL):
             try:
                 self.previous_handler(signum, *frame)
@@ -50,52 +56,16 @@ class Signal(object):
                 print '-' * 70
                 stdout.flush()
 
-    def dispatch(self):
-        try:
-            self.callback(*self.parameters)
-        except:
-            print datetime.now(), 'Signal: unhandled exception in signal callback'
-            print '-' * 70
-            print_exc(file = stdout)
-            print '-' * 70
-            stdout.flush()
-
-    def cancel(self):
-        signal(self.signum, self.previous_handler)
-        self.callback = None
-        self.parameters = None
-        self.previous_handler = None
-
-def log_signal(signum, sip_logger, signal_cb, cb_params):
-    sip_logger.write('Dispatching signal %d to handler %s' % (signum, str(signal_cb)))
-    return signal_cb(*cb_params)
-
-def LogSignal(sip_logger, signum, signal_cb, *cb_params):
-    sip_logger.write('Registering signal %d to handler %s' % (signum, str(signal_cb)))
-    return Signal(signum, log_signal, signum, sip_logger, signal_cb, cb_params)
-
 if __name__ == '__main__':
-    from signal import SIGHUP, SIGURG, SIGTERM
+    from signal import SIGHUP
     from os import kill, getpid
 
     def test(arguments):
-        arguments['test'] = not arguments['test']
+        arguments['test'] = True
         reactor.crash()
 
     arguments = {'test':False}
-    s = Signal(SIGURG, test, arguments)
-    kill(getpid(), SIGURG)
-    reactor.run()
-    assert(arguments['test'])
-    s.cancel()
     Signal(SIGHUP, test, arguments)
-    kill(getpid(), SIGURG)
     kill(getpid(), SIGHUP)
-    reactor.run()
-    assert(not arguments['test'])
-    from SipLogger import SipLogger
-    sip_logger = SipLogger('Signal::selftest')
-    LogSignal(sip_logger, SIGTERM, test, arguments)
-    kill(getpid(), SIGTERM)
     reactor.run()
     assert(arguments['test'])

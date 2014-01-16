@@ -21,6 +21,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
+from Rtp_cluster_member import Rtp_cluster_member
 from twisted.internet import reactor
 
 import sys
@@ -74,7 +75,7 @@ class Rtp_cluster(object):
         self.active = []
         self.pending = []
         if len(address) == 2:
-            self.ccm = Udp_server(global_config, address, self.up_command_udp)
+            self.ccm = Udp_server(address, self.up_command_udp)
         else:
             self.ccm = Cli_server_local(self.up_command, address, (80, 80))
             self.ccm.protocol.expect_lf = False
@@ -157,8 +158,6 @@ class Rtp_cluster(object):
         clim.close()
 
     def merge_results(self, result, br, rtpp):
-        if result == None:
-            result = 'E999'
         if br != None and not result[0].upper() == 'E' and not \
           (br.cmd.type in ('U', 'L') and result == '0'):
             br.results.append(result)

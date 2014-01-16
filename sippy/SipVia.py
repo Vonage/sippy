@@ -59,6 +59,7 @@ class SipVia(SipGenericHF):
                 self.params = params
 
     def parse(self):
+        self.parsed = True
         self.params = {}
         self.sipver, hostname = self.body.split(None, 1)
         hcomps = [x.strip() for x in hostname.split(';')]
@@ -77,18 +78,9 @@ class SipVia(SipGenericHF):
             hcomps = hcomps[0].split(':', 1)
             self.hostname = hcomps[0]
         if len(hcomps) == 2:
-            try:
-                self.port = int(hcomps[1])
-            except Exception, e:
-                # XXX: some bad-ass devices send us port number twice
-                # While not allowed by the RFC, deal with it
-                portparts = hcomps[1].split(':', 1)
-                if len(portparts) != 2 or portparts[0] != portparts[1]:
-                    raise e
-                self.port = int(portparts[0])
+            self.port = int(hcomps[1])
         else:
             self.port = None
-        self.parsed = True
 
     def __str__(self):
         return self.localStr()
@@ -133,14 +125,12 @@ class SipVia(SipGenericHF):
 
     def getTAddr(self):
         rport = self.params.get('rport', None)
-        if rport != None:
-            rport = int(rport)
-            if rport <= 0:
-                rport = None
         if rport == None:
             rport = self.getAddr()[1]
             if rport == None:
                 rport = SipConf.default_port
+        else:
+            rport = int(rport)
         return (self.params.get('received', self.getAddr()[0]), rport)
 
 def _unit_test():

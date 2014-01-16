@@ -28,7 +28,6 @@ from ESipHeaderCSV import ESipHeaderCSV
 
 class SipAddressHF(SipGenericHF):
     address = None
-    relaxedparser = False
 
     def __init__(self, body = None, address = None):
         SipGenericHF.__init__(self, body)
@@ -57,8 +56,8 @@ class SipAddressHF(SipGenericHF):
             self.address = address
 
     def parse(self):
-        self.address = SipAddress(self.body, relaxedparser = self.relaxedparser)
         self.parsed = True
+        self.address = SipAddress(self.body)
 
     def __str__(self):
         return self.localStr()
@@ -70,11 +69,8 @@ class SipAddressHF(SipGenericHF):
 
     def getCopy(self):
         if not self.parsed:
-            oret = self.__class__(self.body)
-        else:
-            oret = self.__class__(address = self.address.getCopy())
-        oret.relaxedparser = self.relaxedparser
-        return oret
+            return self.__class__(self.body)
+        return self.__class__(address = self.address.getCopy())
 
     def setBody(self, body):
         self.address = body

@@ -85,12 +85,7 @@ SUPPORTED_OPTIONS = { \
                              'challenge response comes in'), \
  'rtp_proxy_clients': ('S', 'comma-separated list of paths or addresses of the ' \
                              'RTPproxy control socket. Address in the format ' \
-                             '"udp:host[:port]" (comma-separated list)'), \
- 'sip_proxy':         ('S', 'address of the helper proxy to handle "REGISTER" ' \
-                             'and "SUBSCRIBE" messages. Address in the format ' \
-                             '"host[:port]"'),
- 'nat_traversal':     ('B', 'enable NAT traversal for signalling'), \
- 'xmpp_b2bua_id':     ('I', 'ID passed to the XMPP socket server')}
+                             '"udp:host[:port]" (comma-separated list)')}
 
 class MyConfigParser(RawConfigParser):
     default_section = None
@@ -186,10 +181,8 @@ class MyConfigParser(RawConfigParser):
                 raise ValueError, 'max_credit_time should be more than zero'
         elif key == 'allowed_pts':
             self['_allowed_pts'] = [int(x) for x in value.split(',')]
-        elif key in ('accept_ips', 'rtp_proxy_clients'):
+        elif key in ('accept_ips', 'pass_headers', 'rtp_proxy_clients'):
             self['_' + key] = [x.strip() for x in value.split(',')]
-        elif key == 'pass_headers':
-            self['_' + key] = [x.strip().lower() for x in value.split(',')]
         elif key == 'sip_address':
             if 'my' in dir(value):
                 self['_sip_address'] = value

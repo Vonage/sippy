@@ -88,17 +88,10 @@ class UA(object):
     p1xx_ts = None
     connect_ts = None
     disconnect_ts = None
-    local_ua = None
-    remote_ua = None
+    user_agent = None
     elast_seq = None
     origin = None
     source_address = None
-    to_username = None
-    ruri_userparams = None
-    outbound_proxy = None
-    pass_auth = False
-    pending_tr = None
-    late_media = False
 
     def __init__(self, global_config, event_cb = None, username = None, password = None, nh_address = None, credit_time = None, \
       conn_cbs = None, disc_cbs = None, fail_cbs = None, ring_cbs = None, dead_cbs = None, ltag = None, extra_headers = None, \
@@ -145,10 +138,10 @@ class UA(object):
     def recvRequest(self, req):
         #print 'Received request %s in state %s instance %s' % (req.getMethod(), self.state, self)
         #print self.rCSeq, req.getHFBody('cseq').getCSeqNum()
-        if self.remote_ua == None:
+        if self.user_agent == None:
             self.update_ua(req)
         if self.rCSeq != None and self.rCSeq >= req.getHFBody('cseq').getCSeqNum():
-            return (req.genResponse(500, 'Server Internal Error', server = self.local_ua), None, None)
+            return (req.genResponse(500, 'Server Internal Error'), None, None)
         self.rCSeq = req.getHFBody('cseq').getCSeqNum()
         if self.state == None:
             if req.getMethod() == 'INVITE':
@@ -164,35 +157,33 @@ class UA(object):
         else:
             return None
 
-    def recvResponse(self, resp, tr):
+    def recvResponse(self, resp):
         if self.state == None:
             return
         self.update_ua(resp)
         code, reason = resp.getSCode()
         cseq, method = resp.getHFBody('cseq').getCSeq()
-        if method == 'INVITE' and not self.pass_auth and self.reqs.has_key(cseq) and code == 401 and \
-          resp.countHFs('www-authenticate') != 0 and \
+        if method == 'INVITE' and self.reqs.has_key(cseq) and code == 401 and resp.countHFs('www-authenticate') != 0 and \
           self.username != None and self.password != None and self.reqs[cseq].countHFs('authorization') == 0:
             challenge = resp.getHFBody('www-authenticate')
             req = self.genRequest('INVITE', self.lSDP, challenge.getNonce(), challenge.getRealm())
             self.lCSeq += 1
             self.tr = self.global_config['_sip_tm'].newTransaction(req, self.recvResponse, \
-              laddress = self.source_address, cb_ifver = 2)
+              laddress = self.source_address)
             del self.reqs[cseq]
             return None
-        if method == 'INVITE' and not self.pass_auth and self.reqs.has_key(cseq) and code == 407 and \
-          resp.countHFs('proxy-authenticate') != 0 and \
+        if method == 'INVITE' and self.reqs.has_key(cseq) and code == 407 and resp.countHFs('proxy-authenticate') != 0 and \
           self.username != None and self.password != None and self.reqs[cseq].countHFs('proxy-authorization') == 0:
             challenge = resp.getHFBody('proxy-authenticate')
             req = self.genRequest('INVITE', self.lSDP, challenge.getNonce(), challenge.getRealm(), SipProxyAuthorization)
             self.lCSeq += 1
             self.tr = self.global_config['_sip_tm'].newTransaction(req, self.recvResponse, \
-              laddress = self.source_address, cb_ifver = 2)
+              laddress = self.source_address)
             del self.reqs[cseq]
             return None
         if code >= 200 and self.reqs.has_key(cseq):
             del self.reqs[cseq]
-        newstate = self.state.recvResponse(resp, tr)
+        newstate = self.state.recvResponse(resp)
         if newstate != None:
             self.changeState(newstate)
         self.emitPendingEvents()
@@ -258,14 +249,9 @@ class UA(object):
 
     def genRequest(self, method, body = None, nonce = None, realm = None, SipXXXAuthorization = SipAuthorization, \
       reason = None):
-        if self.outbound_proxy != None:
-            target = self.outbound_proxy
-        else:
-            target = self.rAddr
         req = SipRequest(method = method, ruri = self.rTarget, to = self.rUri, fr0m = self.lUri,
                          cseq = self.lCSeq, callid = self.cId, contact = self.lContact,
-                         routes = self.routes, target = target, cguid = self.cGUID,
-                         user_agent = self.local_ua)
+                         routes = self.routes, target = self.rAddr, cguid = self.cGUID)
         if nonce != None and realm != None and self.username != None and self.password != None:
             auth = SipXXXAuthorization(realm = realm, nonce = nonce, method = method, uri = str(self.rTarget),
               username = self.username, password = self.password)
@@ -280,7 +266,7 @@ class UA(object):
         return req
 
     def sendUasResponse(self, scode, reason, body = None, contact = None, \
-      reason_rfc3326 = None, extra_headers = None, ack_wait = False):
+      reason_rfc3326 = None, extra_header = None):
         self.uasResp.setSCode(scode, reason)
         self.uasResp.setBody(body)
         self.uasResp.delHFs('www-authenticate')
@@ -290,22 +276,9 @@ class UA(object):
             self.uasResp.appendHeader(SipHeader(name = 'contact', body = contact))
         if reason_rfc3326 != None:
             self.uasResp.appendHeader(SipHeader(body = reason_rfc3326))
-        if extra_headers != None:
-            self.uasResp.appendHeaders(extra_headers)
-        if ack_wait:
-            ack_cb = self.recvACK
-        else:
-            ack_cb = None
-        self.global_config['_sip_tm'].sendResponse(self.uasResp, ack_cb = ack_cb)
-
-    def recvACK(self, req):
-        if not self.isConnected():
-            return
-        #print 'UA::recvACK', req
-        newstate = self.state.recvACK(req)
-        if newstate != None:
-            self.changeState(newstate)
-        self.emitPendingEvents()
+        if extra_header != None:
+            self.uasResp.appendHeader(extra_header)
+        self.global_config['_sip_tm'].sendResponse(self.uasResp)
 
     def isYours(self, req = None, call_id = None, from_tag = None, to_tag = None):
         #print self.branch, req.getHFBody('via').getBranch()
@@ -382,9 +355,9 @@ class UA(object):
 
     def update_ua(self, msg):
         if msg.countHFs('user-agent') > 0:
-            self.remote_ua = msg.getHFBody('user-agent').name
+            self.user_agent = msg.getHFBody('user-agent').name
         elif msg.countHFs('server') > 0:
-            self.remote_ua = msg.getHFBody('server').name
+            self.user_agent = msg.getHFBody('server').name
         return
 
     def cancelCreditTimer(self):

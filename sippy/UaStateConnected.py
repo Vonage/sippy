@@ -50,15 +50,15 @@ class UaStateConnected(UaStateGeneric):
     def recvRequest(self, req):
         if req.getMethod() == 'REFER':
             if req.countHFs('refer-to') == 0:
-                self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(400, 'Bad Request', server = self.ua.local_ua))
+                self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(400, 'Bad Request'))
                 return None
-            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(202, 'Accepted', server = self.ua.local_ua))
+            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(202, 'Accepted'))
             also = req.getHFBody('refer-to').getUrl().getCopy()
             self.ua.equeue.append(CCEventDisconnect(also, rtime = req.rtime, origin = self.ua.origin))
             self.ua.recvEvent(CCEventDisconnect(rtime = req.rtime, origin = self.ua.origin))
             return None
         if req.getMethod() == 'INVITE':
-            self.ua.uasResp = req.genResponse(100, 'Trying', server = self.ua.local_ua)
+            self.ua.uasResp = req.genResponse(100, 'Trying')
             self.ua.global_config['_sip_tm'].sendResponse(self.ua.uasResp)
             body = req.getBody()
             if body == None:
@@ -70,7 +70,7 @@ class UaStateConnected(UaStateGeneric):
                 for sect in body.content.sections:
                     sect.c_header.addr = '0.0.0.0'
             elif str(self.ua.rSDP) == str(body):
-                self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK', self.ua.lSDP, server = self.ua.local_ua))
+                self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK', self.ua.lSDP))
                 return None
             event = CCEventUpdate(body, rtime = req.rtime, origin = self.ua.origin)
             try:
@@ -88,7 +88,7 @@ class UaStateConnected(UaStateGeneric):
             self.ua.equeue.append(event)
             return (UasStateUpdating,)
         if req.getMethod() == 'BYE':
-            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK', server = self.ua.local_ua))
+            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK'))
             #print 'BYE received in the Connected state, going to the Disconnected state'
             if req.countHFs('also') > 0:
                 also = req.getHFBody('also').getUrl().getCopy()
@@ -104,7 +104,7 @@ class UaStateConnected(UaStateGeneric):
             self.ua.disconnect_ts = req.rtime
             return (UaStateDisconnected, self.ua.disc_cbs, req.rtime, self.ua.origin)
         if req.getMethod() == 'INFO':
-            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK', server = self.ua.local_ua))
+            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK'))
             event = CCEventInfo(req.getBody(), rtime = req.rtime, origin = self.ua.origin)
             try:
                 event.reason = req.getHFBody('reason')
@@ -113,31 +113,9 @@ class UaStateConnected(UaStateGeneric):
             self.ua.equeue.append(event)
             return None
         if req.getMethod() == 'OPTIONS':
-            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK', server = self.ua.local_ua))
+            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK'))
             return None
         #print 'wrong request %s in the state Connected' % req.getMethod()
-        return None
-
-    def recvACK(self, req):
-        body = req.getBody()
-        scode = ('ACK', 'ACK', body)
-        event = CCEventConnect(scode, rtime = req.rtime, origin = self.ua.origin)
-        if self.ua.expire_timer != None:
-            self.ua.expire_timer.cancel()
-            self.ua.expire_timer = None
-        self.ua.startCreditTimer(req.rtime)
-        self.ua.connect_ts = req.rtime
-        for callback in self.ua.conn_cbs:
-            callback(self.ua, req.rtime, self.ua.origin)
-        if body != None:
-            if self.ua.on_remote_sdp_change != None:
-                self.ua.on_remote_sdp_change(body, lambda x: self.ua.delayed_remote_sdp_update(event, x))
-                return None
-            else:
-                self.ua.rSDP = body.getCopy()
-        else:
-            self.ua.rSDP = None
-        self.ua.equeue.append(event)
         return None
 
     def recvEvent(self, event):
@@ -184,7 +162,7 @@ class UaStateConnected(UaStateGeneric):
             self.ua.lCSeq += 1
             self.ua.lSDP = body
             self.ua.tr = self.ua.global_config['_sip_tm'].newTransaction(req, self.ua.recvResponse, \
-              laddress = self.ua.source_address, cb_ifver = 2)
+              laddress = self.ua.source_address)
             return (UacStateUpdating,)
         if isinstance(event, CCEventInfo):
             body = event.getData()
@@ -193,23 +171,6 @@ class UaStateConnected(UaStateGeneric):
             self.ua.lCSeq += 1
             self.ua.global_config['_sip_tm'].newTransaction(req, None, \
               laddress = self.ua.source_address)
-            return None
-        if self.ua.pending_tr != None and isinstance(event, CCEventConnect):
-            if self.ua.expire_timer != None:
-                self.ua.expire_timer.cancel()
-                self.ua.expire_timer = None
-            code, reason, body = event.getData()
-            if body != None and self.ua.on_local_sdp_change != None and body.needs_update:
-                self.ua.on_local_sdp_change(body, lambda x: self.ua.recvEvent(event))
-                return None
-            self.ua.startCreditTimer(event.rtime)
-            self.ua.connect_ts = event.rtime
-            self.ua.lSDP = body
-            self.ua.pending_tr.ack.setBody(body)
-            self.ua.global_config['_sip_tm'].sendACK(self.ua.pending_tr)
-            self.ua.pending_tr = None
-            for callback in self.ua.conn_cbs:
-                callback(self.ua, event.rtime, self.ua.origin)
             return None
         #print 'wrong event %s in the Connected state' % event
         return None
@@ -265,12 +226,6 @@ class UaStateConnected(UaStateGeneric):
         if self.ka_tr != None:
             self.ua.global_config['_sip_tm'].cancelTransaction(self.ka_tr)
             self.ka_tr = None
-        if self.ua.pending_tr != None:
-            self.ua.global_config['_sip_tm'].sendACK(self.ua.pending_tr)
-            self.ua.pending_tr = None
-        if self.ua.expire_timer != None:
-            self.ua.expire_timer.cancel()
-            self.ua.expire_timer = None
 
     def rComplete(self, resp):
         req = self.ua.genRequest('BYE')

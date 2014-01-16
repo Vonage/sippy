@@ -23,8 +23,7 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 from UaStateGeneric import UaStateGeneric
-from CCEvents import CCEventRing, CCEventConnect, CCEventFail, CCEventRedirect, \
-  CCEventDisconnect, CCEventPreConnect
+from CCEvents import CCEventRing, CCEventConnect, CCEventFail, CCEventRedirect, CCEventDisconnect
 from SipContact import SipContact
 from SipAddress import SipAddress
 from Timeout import TimeoutAbs
@@ -54,26 +53,22 @@ class UasStateTrying(UaStateGeneric):
             if self.ua.p1xx_ts == None:
                 self.ua.p1xx_ts = event.rtime
             return (UasStateRinging, self.ua.ring_cbs, event.rtime, event.origin, code)
-        elif isinstance(event, CCEventConnect) or isinstance(event, CCEventPreConnect):
+        elif isinstance(event, CCEventConnect):
             code, reason, body = event.getData()
             if body != None and self.ua.on_local_sdp_change != None and body.needs_update:
                 self.ua.on_local_sdp_change(body, lambda x: self.ua.recvEvent(event))
                 return None
             self.ua.lSDP = body
+            self.ua.sendUasResponse(code, reason, body, self.ua.lContact)
+            if self.ua.expire_timer != None:
+                self.ua.expire_timer.cancel()
+                self.ua.expire_timer = None
             if self.ua.no_progress_timer != None:
                 self.ua.no_progress_timer.cancel()
                 self.ua.no_progress_timer = None
-            if isinstance(event, CCEventConnect):
-                self.ua.sendUasResponse(code, reason, body, self.ua.lContact, ack_wait = False)
-                if self.ua.expire_timer != None:
-                    self.ua.expire_timer.cancel()
-                    self.ua.expire_timer = None
-                self.ua.startCreditTimer(event.rtime)
-                self.ua.connect_ts = event.rtime
-                return (UaStateConnected, self.ua.conn_cbs, event.rtime, event.origin)
-            else:
-                self.ua.sendUasResponse(code, reason, body, self.ua.lContact, ack_wait = True)
-                return (UaStateConnected,)
+            self.ua.startCreditTimer(event.rtime)
+            self.ua.connect_ts = event.rtime
+            return (UaStateConnected, self.ua.conn_cbs, event.rtime, event.origin)
         elif isinstance(event, CCEventRedirect):
             scode = event.getData()
             if scode == None:
@@ -91,11 +86,8 @@ class UasStateTrying(UaStateGeneric):
             scode = event.getData()
             if scode == None:
                 scode = (500, 'Failed')
-            extra_headers = [x for x in (event.extra_header, event.challenge) if x != None]
-            if len(extra_headers) == 0:
-                extra_headers = None
             self.ua.sendUasResponse(scode[0], scode[1], reason_rfc3326 = event.reason, \
-              extra_headers = extra_headers)
+              extra_header = event.extra_header)
             if self.ua.expire_timer != None:
                 self.ua.expire_timer.cancel()
                 self.ua.expire_timer = None

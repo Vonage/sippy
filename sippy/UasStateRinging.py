@@ -23,8 +23,7 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 from UaStateGeneric import UaStateGeneric
-from CCEvents import CCEventRing, CCEventConnect, CCEventFail, CCEventRedirect, \
-  CCEventDisconnect, CCEventPreConnect
+from CCEvents import CCEventRing, CCEventConnect, CCEventFail, CCEventRedirect, CCEventDisconnect
 from SipContact import SipContact
 from SipAddress import SipAddress
 
@@ -50,23 +49,19 @@ class UasStateRinging(UaStateGeneric):
             for ring_cb in self.ua.ring_cbs:
                 ring_cb(self.ua, event.rtime, event.origin, code)
             return None
-        elif isinstance(event, CCEventConnect) or isinstance(event, CCEventPreConnect):
+        elif isinstance(event, CCEventConnect):
             code, reason, body = event.getData()
             if body != None and self.ua.on_local_sdp_change != None and body.needs_update:
                 self.ua.on_local_sdp_change(body, lambda x: self.ua.recvEvent(event))
                 return None
             self.ua.lSDP = body
-            if isinstance(event, CCEventConnect):
-                self.ua.sendUasResponse(code, reason, body, self.ua.lContact, ack_wait = False)
-                if self.ua.expire_timer != None:
-                    self.ua.expire_timer.cancel()
-                    self.ua.expire_timer = None
-                self.ua.startCreditTimer(event.rtime)
-                self.ua.connect_ts = event.rtime
-                return (UaStateConnected, self.ua.conn_cbs, event.rtime, event.origin)
-            else:
-                self.ua.sendUasResponse(code, reason, body, self.ua.lContact, ack_wait = True)
-                return (UaStateConnected,)
+            self.ua.sendUasResponse(code, reason, body, self.ua.lContact)
+            if self.ua.expire_timer != None:
+                self.ua.expire_timer.cancel()
+                self.ua.expire_timer = None
+            self.ua.startCreditTimer(event.rtime)
+            self.ua.connect_ts = event.rtime
+            return (UaStateConnected, self.ua.conn_cbs, event.rtime, event.origin)
         elif isinstance(event, CCEventRedirect):
             scode = event.getData()
             if scode == None:
@@ -81,12 +76,8 @@ class UasStateRinging(UaStateGeneric):
             scode = event.getData()
             if scode == None:
                 scode = (500, 'Failed')
-            if event.extra_header != None:
-                extra_headers = (event.extra_header,)
-            else:
-                extra_headers = None
             self.ua.sendUasResponse(scode[0], scode[1], reason_rfc3326 = event.reason, \
-              extra_headers = extra_headers)
+              extra_header = event.extra_header)
             if self.ua.expire_timer != None:
                 self.ua.expire_timer.cancel()
                 self.ua.expire_timer = None
@@ -107,7 +98,7 @@ class UasStateRinging(UaStateGeneric):
     def recvRequest(self, req):
         if req.getMethod() == 'BYE':
             self.ua.sendUasResponse(487, 'Request Terminated')
-            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK', server = self.ua.local_ua))
+            self.ua.global_config['_sip_tm'].sendResponse(req.genResponse(200, 'OK'))
             #print 'BYE received in the Ringing state, going to the Disconnected state'
             if req.countHFs('also') > 0:
                 also = req.getHFBody('also').getUrl().getCopy()

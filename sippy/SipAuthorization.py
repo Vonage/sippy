@@ -67,6 +67,7 @@ class SipAuthorization(SipGenericHF):
         self.otherparams = []
 
     def parse(self):
+        self.parsed = True
         self.otherparams = []
         for name, value in [x.strip(', ').split('=', 1) for x in self.body.split(' ', 1)[1].split(',')]:
             if name == 'username':
@@ -87,7 +88,6 @@ class SipAuthorization(SipGenericHF):
                 self.nc = value.strip('"')
             else:
                 self.otherparams.append((name, value))
-        self.parsed = True
 
     def __str__(self):
         if not self.parsed:
@@ -163,7 +163,7 @@ def DigestCalcResponse(HA1, pszNonce, pszNonceCount, pszCNonce, pszQop, pszMetho
     m.update(":")
     m.update(pszNonce)
     m.update(":")
-    if pszNonceCount and pszCNonce and pszQop:
+    if pszNonceCount and pszCNonce: # pszQop:
         m.update(pszNonceCount)
         m.update(":")
         m.update(pszCNonce)

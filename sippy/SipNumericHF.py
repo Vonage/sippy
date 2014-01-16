@@ -34,8 +34,8 @@ class SipNumericHF(SipGenericHF):
             self.number = number
 
     def parse(self):
-        self.number = int(self.body)
         self.parsed = True
+        self.number = int(self.body)
 
     def __str__(self):
         if not self.parsed:

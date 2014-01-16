@@ -51,16 +51,12 @@ from urllib import unquote
 from sippy.Cli_server_local import Cli_server_local
 from sippy.SipTransactionManager import SipTransactionManager
 from sippy.SipCallId import SipCallId
-from sippy.StatefulProxy import StatefulProxy
-from sippy.misc import daemonize
 import gc, getopt, os, sys
 from re import sub
 from time import time
 from urllib import quote
 from hashlib import md5
 from sippy.MyConfigParser import MyConfigParser
-from traceback import print_exc
-from datetime import datetime
 
 def re_replace(ptrn, s):
     s = s.split('#', 1)[0]
@@ -143,7 +139,11 @@ class CallController(object):
                     self.uaA.recvEvent(CCEventFail((500, 'Internal Server Error (1)'), rtime = event.rtime))
                     self.state = CCStateDead
                     return
-                if body != None and self.global_config.has_key('_allowed_pts'):
+                if body == None:
+                    self.uaA.recvEvent(CCEventFail((500, 'Body-less INVITE is not supported'), rtime = event.rtime))
+                    self.state = CCStateDead
+                    return
+                if self.global_config.has_key('_allowed_pts'):
                     try:
                         body.parse()
                     except:
@@ -153,18 +153,14 @@ class CallController(object):
                     allowed_pts = self.global_config['_allowed_pts']
                     mbody = body.content.sections[0].m_header
                     if mbody.transport.lower() == 'rtp/avp':
-                        old_len = len(mbody.formats)
                         mbody.formats = [x for x in mbody.formats if x in allowed_pts]
                         if len(mbody.formats) == 0:
                             self.uaA.recvEvent(CCEventFail((488, 'Not Acceptable Here')))
                             self.state = CCStateDead
                             return
-                        if old_len > len(mbody.formats):
-                            body.content.sections[0].optimize_a()
                 if self.cld.startswith('nat-'):
                     self.cld = self.cld[4:]
-                    if body != None:
-                        body.content += 'a=nated:yes\r\n'
+                    body.content += 'a=nated:yes\r\n'
                     event.data = (self.cId, cGUID, self.cli, self.cld, body, auth, self.caller_name)
                 if self.global_config.has_key('static_tr_in'):
                     self.cld = re_replace(self.global_config['static_tr_in'], self.cld)
@@ -255,7 +251,7 @@ class CallController(object):
         for route in routing:
             rnum += 1
             if route[0].find('@') != -1:
-                cld, host = route[0].split('@', 1)
+                cld, host = route[0].split('@')
                 if len(cld) == 0:
                     # Allow CLD to be forcefully removed by sending `Routing:@host' entry,
                     # as opposed to the Routing:host, which means that CLD should be obtained
@@ -273,7 +269,7 @@ class CallController(object):
             cli = self.cli
             parameters = {}
             parameters['extra_headers'] = self.pass_headers[:]
-            for a, v in [x.split('=', 1) for x in route[1:]]:
+            for a, v in [x.split('=') for x in route[1:]]:
                 if a == 'credit-time':
                     credit_time = int(v)
                     if credit_time < 0:
@@ -309,12 +305,6 @@ class CallController(object):
                 elif a == 'gt':
                     timeout, skip = v.split(',', 1)
                     parameters['group_timeout'] = (int(timeout), rnum + int(skip))
-                elif a == 'op':
-                    host_port = v.split(':', 1)
-                    if len(host_port) == 1:
-                        parameters['outbound_proxy'] = (v, 5060)
-                    else:
-                        parameters['outbound_proxy'] = (host_port[0], int(host_port[1]))
                 else:
                     parameters[a] = v
             if self.global_config.has_key('max_credit_time'):
@@ -377,15 +367,12 @@ class CallController(object):
         self.uaO = UA(self.global_config, self.recvEvent, user, passw, (host, port), credit_time, tuple(conn_handlers), \
           tuple(disc_handlers), tuple(disc_handlers), dead_cbs = (self.oDead,), expire_time = expires, \
           no_progress_time = no_progress_expires, extra_headers = parameters.get('extra_headers', None))
-        if self.source != parameters.get('outbound_proxy', None):
-            self.uaO.outbound_proxy = parameters.get('outbound_proxy', None)
         if self.rtp_proxy_session != None and parameters.get('rtpp', True):
             self.uaO.on_local_sdp_change = self.rtp_proxy_session.on_caller_sdp_change
             self.uaO.on_remote_sdp_change = self.rtp_proxy_session.on_callee_sdp_change
             self.rtp_proxy_session.caller_raddress = (host, port)
-            if body != None:
-                body = body.getCopy()
-                body.content += 'a=nortpproxy:yes\r\n'
+            body = body.getCopy()
+            body.content += 'a=nortpproxy:yes\r\n'
             self.proxied = True
         self.uaO.kaInterval = self.global_config['keepalive_orig']
         if parameters.has_key('group_timeout'):
@@ -460,7 +447,6 @@ class CallMap(object):
     debug_mode = False
     safe_restart = False
     global_config = None
-    proxy = None
     #rc1 = None
     #rc2 = None
 
@@ -477,18 +463,7 @@ class CallMap(object):
         #print gc.collect()
 
     def recvRequest(self, req):
-        try:
-            to_tag = req.getHFBody('to').getTag()
-        except Exception, exception:
-            print datetime.now(), 'can\'t parse SIP request: %s:\n' % str(exception)
-            print '-' * 70
-            print_exc(file = sys.stdout)
-            print '-' * 70
-            print req
-            print '-' * 70
-            sys.stdout.flush()
-            return (None, None, None)
-        if to_tag != None:
+        if req.getHFBody('to').getTag() != None:
             # Request within dialog, but no such dialog
             return (req.genResponse(481, 'Call Leg/Transaction Does Not Exist'), None, None)
         if req.getMethod() == 'INVITE':
@@ -533,8 +508,6 @@ class CallMap(object):
             rval = cc.uaA.recvRequest(req)
             self.ccmap.append(cc)
             return rval
-        if self.proxy != None and req.getMethod() in ('REGISTER', 'SUBSCRIBE'):
-            return self.proxy.recvRequest(req)
         if req.getMethod() in ('NOTIFY', 'PING'):
             # Whynot?
             return (req.genResponse(200, 'OK'), None, None)
@@ -567,8 +540,8 @@ class CallMap(object):
                 except AttributeError:
                     print None
         else:
-            print '[%d]: %d client, %d server transactions in memory' % \
-              (os.getpid(), len(self.global_config['_sip_tm'].tclient), len(self.global_config['_sip_tm'].tserver))
+            print '%d client, %d server transactions in memory' % \
+              (len(self.global_config['_sip_tm'].tclient), len(self.global_config['_sip_tm'].tserver))
         if self.safe_restart:
             if len(self.ccmap) == 0:
                 self.global_config['_sip_tm'].userv.close()
@@ -605,35 +578,6 @@ class CallMap(object):
                     res += 'N/A)\n'
                 total += 1
             res += 'Total: %d\n' % total
-            clim.send(res)
-            return False
-        if cmd == 'lt':
-            res = 'In-memory server transactions:\n'
-            for tid, t in self.global_config['_sip_tm'].tserver.iteritems():
-                res += '%s %s %s\n' % (tid, t.method, t.state)
-            res += 'In-memory client transactions:\n'
-            for tid, t in self.global_config['_sip_tm'].tclient.iteritems():
-                res += '%s %s %s\n' % (tid, t.method, t.state)
-            clim.send(res)
-            return False
-        if cmd in ('lt', 'llt'):
-            if cmd == 'llt':
-                mindur = 60.0
-            else:
-                mindur = 0.0
-            ctime = time()
-            res = 'In-memory server transactions:\n'
-            for tid, t in self.global_config['_sip_tm'].tserver.iteritems():
-                duration = ctime - t.rtime
-                if duration < mindur:
-                    continue
-                res += '%s %s %s %s\n' % (tid, t.method, t.state, duration)
-            res += 'In-memory client transactions:\n'
-            for tid, t in self.global_config['_sip_tm'].tclient.iteritems():
-                duration = ctime - t.rtime
-                if duration < mindur:
-                    continue
-                res += '%s %s %s %s\n' % (tid, t.method, t.state, duration)
             clim.send(res)
             return False
         if cmd == 'd':
@@ -825,7 +769,22 @@ if __name__ == '__main__':
         global_config.write(open(writeconf, 'w'))
 
     if not global_config['foreground']:
-        daemonize(logfile = global_config['logfile'])
+        #print 'foobar'
+        # Fork once
+        if os.fork() != 0:
+            os._exit(0)
+        # Create new session
+        os.setsid()
+        if os.fork() != 0:
+            os._exit(0)
+        os.chdir('/')
+        fd = os.open('/dev/null', os.O_RDONLY)
+        os.dup2(fd, sys.__stdin__.fileno())
+        os.close(fd)
+        fd = os.open(global_config['logfile'], os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        os.dup2(fd, sys.__stdout__.fileno())
+        os.dup2(fd, sys.__stderr__.fileno())
+        os.close(fd)
 
     global_config['_sip_logger'] = SipLogger('b2bua')
 
@@ -839,18 +798,8 @@ if __name__ == '__main__':
     SipConf.my_uaname = 'Sippy B2BUA (RADIUS)'
 
     global_config['_cmap'] = CallMap(global_config)
-    if global_config.has_key('sip_proxy'):
-        host_port = global_config['sip_proxy'].split(':', 1)
-        if len(host_port) == 1:
-            global_config['_sip_proxy'] = (host_port[0], 5060)
-        else:
-            global_config['_sip_proxy'] = (host_port[0], int(host_port[1]))
-        global_config['_cmap'].proxy = StatefulProxy(global_config, global_config['_sip_proxy'])
 
-    if global_config.getdefault('xmpp_b2bua_id', None) != None:
-        global_config['_xmpp_mode'] = True
     global_config['_sip_tm'] = SipTransactionManager(global_config, global_config['_cmap'].recvRequest)
-    global_config['_sip_tm'].nat_traversal = global_config.getdefault('nat_traversal', False)
 
     cmdfile = global_config['b2bua_socket']
     if cmdfile.startswith('unix:'):
@@ -861,5 +810,4 @@ if __name__ == '__main__':
         file(global_config['pidfile'], 'w').write(str(os.getpid()) + '\n')
         Signal(SIGUSR1, reopen, SIGUSR1, global_config['logfile'])
 
-    reactor.suggestThreadPoolSize(50)
     reactor.run(installSignalHandlers = True)

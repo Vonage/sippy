@@ -31,7 +31,6 @@ from sippy.SipConf import SipConf
 from sippy.SipLogger import SipLogger
 from sippy.SipTransactionManager import SipTransactionManager
 from sippy.StatefulProxy import StatefulProxy
-from sippy.misc import daemonize
 from twisted.internet import reactor
 import getopt, os, sys
 #import gc
@@ -124,7 +123,22 @@ if __name__ == '__main__':
     global_config['nh_addr'] = tuple(global_config['nh_addr'])
 
     if not foreground:
-        daemonize(logfile = '/var/log/sippy.log')
+        #print 'foobar'
+        # Fork once
+        if os.fork() != 0:
+            os._exit(0)
+        # Create new session
+        os.setsid()
+        if os.fork() != 0:
+            os._exit(0)
+        os.chdir('/')
+        fd = os.open('/dev/null', os.O_RDONLY)
+        os.dup2(fd, sys.__stdin__.fileno())
+        os.close(fd)
+        fd = os.open('/var/log/sippy.log', os.O_WRONLY | os.O_CREAT | os.O_APPEND)
+        os.dup2(fd, sys.__stdout__.fileno())
+        os.dup2(fd, sys.__stderr__.fileno())
+        os.close(fd)
 
     SipConf.my_uaname = 'Sippy B2BUA (Simple)'
     SipConf.allow_formats = (0, 8, 18, 100, 101)

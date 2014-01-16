@@ -27,9 +27,7 @@ from threading import Thread, Condition
 from errno import EINTR
 from twisted.internet import reactor
 
-from datetime import datetime
 import socket
-import sys, traceback
 
 class _RTPPLWorker(Thread):
     userv = None
@@ -79,23 +77,11 @@ class _RTPPLWorker(Thread):
             command, result_callback, callback_parameters = wi
             try:
                 data = self.send_raw(command)
-                if len(data) == 0:
-                    data = None
             except:
                 data = None
             if result_callback != None:
-                reactor.callFromThread(self.dispatch, result_callback, data, callback_parameters)
+                reactor.callFromThread(result_callback, data, *callback_parameters)
         self.userv = None
-
-    def dispatch(self, result_callback, data, callback_parameters):
-        try:
-            result_callback(data, *callback_parameters)
-        except:
-            print datetime.now(), 'Rtp_proxy_client_local: unhandled exception when processing RTPproxy reply'
-            print '-' * 70
-            traceback.print_exc(file = sys.stdout)
-            print '-' * 70
-            sys.stdout.flush()
 
     def shutdown(self):
         self.userv.wi_available.acquire()

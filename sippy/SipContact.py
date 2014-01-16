@@ -23,7 +23,6 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA.
 
 from SipAddressHF import SipAddressHF
-from SipGenericHF import SipGenericHF
 from SipConf import SipConf
 from SipAddress import SipAddress
 from SipURL import SipURL
@@ -31,13 +30,10 @@ from ESipHeaderIgnore import ESipHeaderIgnore
 
 class SipContact(SipAddressHF):
     hf_names = ('contact', 'm')
-    asterisk = False
 
     def __init__(self, body = None, address = None):
         if body == '*':
-            SipGenericHF.__init__(self, body)
-            self.asterisk = True
-            return
+            raise ESipHeaderIgnore()
         SipAddressHF.__init__(self, body, address)
         if body == None and address == None:
             self.address = SipAddress(name = 'Anonymous', url = SipURL(host = SipConf.my_address, port = SipConf.my_port))
@@ -46,7 +42,3 @@ class SipContact(SipAddressHF):
         if compact:
             return 'm'
         return 'Contact'
-
-    def parse(self):
-        if not self.asterisk:
-            return SipAddressHF.parse(self)

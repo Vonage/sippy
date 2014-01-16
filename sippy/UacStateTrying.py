@@ -32,12 +32,10 @@ class UacStateTrying(UaStateGeneric):
     sname = 'Trying(UAC)'
     triedauth = False
 
-    def recvResponse(self, resp, tr):
+    def recvResponse(self, resp):
         body = resp.getBody()
         code, reason = resp.getSCode()
         scode = (code, reason, body)
-        self.ua.last_scode = code
-
         if self.ua.no_reply_timer != None:
             self.ua.no_reply_timer.cancel()
             self.ua.no_reply_timer = None
@@ -56,6 +54,7 @@ class UacStateTrying(UaStateGeneric):
             if code < 200 and self.ua.expire_time != None:
                 self.ua.expire_timer = TimeoutAbs(self.ua.expires, self.ua.expire_time)
         if code < 200:
+            self.ua.last_scode = code
             event = CCEventRing(scode, rtime = resp.rtime, origin = self.ua.origin)
             if body != None:
                 if self.ua.on_remote_sdp_change != None:
@@ -79,83 +78,37 @@ class UacStateTrying(UaStateGeneric):
             self.ua.routes.reverse()
             if len(self.ua.routes) > 0:
                 if not self.ua.routes[0].getUrl().lr:
-                    self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
+                    self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget.getCopy())))
                     self.ua.rTarget = self.ua.routes.pop(0).getUrl()
                     self.ua.rAddr = self.ua.rTarget.getAddr()
-                elif self.ua.outbound_proxy != None:
-                    self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
-                    self.ua.rTarget = self.ua.routes[0].getUrl().getCopy()
-                    self.ua.rTarget.lr = False
-                    self.ua.rTarget.other = tuple()
-                    self.ua.rTarget.headers = tuple()
                 else:
                     self.ua.rAddr = self.ua.routes[0].getAddr()
             else:
                 self.ua.rAddr = self.ua.rTarget.getAddr()
-            tag = resp.getHFBody('to').getTag()
-            if tag == None:
-                print 'tag-less 200 OK, disconnecting'
-                scode = (502, 'Bad Gateway')
-                self.ua.equeue.append(CCEventFail(scode, rtime = resp.rtime, origin = self.ua.origin))
-                # Generate and send BYE
-                if resp.countHFs('contact') > 0:
-                    self.ua.rTarget = resp.getHFBody('contact').getUrl().getCopy()
-                self.ua.routes = [x.getCopy() for x in resp.getHFBodys('record-route')]
-                self.ua.routes.reverse()
-                if len(self.ua.routes) > 0:
-                    if not self.ua.routes[0].getUrl().lr:
-                        self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
-                        self.ua.rTarget = self.ua.routes.pop(0).getUrl()
-                        self.ua.rAddr = self.ua.rTarget.getAddr()
-                    elif self.ua.outbound_proxy != None:
-                        self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
-                        self.ua.rTarget = self.ua.routes[0].getUrl().getCopy()
-                        self.ua.rTarget.lr = False
-                        self.ua.rTarget.other = tuple()
-                        self.ua.rTarget.headers = tuple()
-                    else:
-                        self.ua.rAddr = self.ua.routes[0].getAddr()
-                else:
-                    self.ua.rAddr = self.ua.rTarget.getAddr()
-                req = self.ua.genRequest('BYE')
-                self.ua.lCSeq += 1
-                self.ua.global_config['_sip_tm'].newTransaction(req, \
-                  laddress = self.ua.source_address)
-                return (UaStateFailed, self.ua.fail_cbs, resp.rtime, self.ua.origin, scode[0])
-            self.ua.rUri.setTag(tag)
-            if not self.ua.late_media or body == None:
-                self.ua.late_media = False
-                event = CCEventConnect(scode, rtime = resp.rtime, origin = self.ua.origin)
-                self.ua.startCreditTimer(resp.rtime)
-                self.ua.connect_ts = resp.rtime
-                rval = (UaStateConnected, self.ua.conn_cbs, resp.rtime, self.ua.origin)
-            else:
-                event = CCEventPreConnect(scode, rtime = resp.rtime, origin = self.ua.origin)
-                tr.uack = True
-                self.ua.pending_tr = tr
-                rval = (UaStateConnected,)
+            self.ua.rUri.setTag(resp.getHFBody('to').getTag())
+            event = CCEventConnect(scode, rtime = resp.rtime, origin = self.ua.origin)
+            self.ua.startCreditTimer(resp.rtime)
             if body != None:
                 if self.ua.on_remote_sdp_change != None:
                     self.ua.on_remote_sdp_change(body, lambda x: self.ua.delayed_remote_sdp_update(event, x))
-                    return rval
+                    self.ua.connect_ts = resp.rtime
+                    return (UaStateConnected, self.ua.conn_cbs, resp.rtime, self.ua.origin)
                 else:
                     self.ua.rSDP = body.getCopy()
             else:
                 self.ua.rSDP = None
             self.ua.equeue.append(event)
-            return rval
+            self.ua.connect_ts = resp.rtime
+            return (UaStateConnected, self.ua.conn_cbs, resp.rtime, self.ua.origin)
         if code in (301, 302) and resp.countHFs('contact') > 0:
             scode = (code, reason, body, resp.getHFBody('contact').getUrl().getCopy())
             self.ua.equeue.append(CCEventRedirect(scode, rtime = resp.rtime, origin = self.ua.origin))
         else:
             event = CCEventFail(scode, rtime = resp.rtime, origin = self.ua.origin)
-            if self.ua.pass_auth:
-                if code == 401 and resp.countHFs('www-authenticate') != 0:
-                    event.challenge = resp.getHF('www-authenticate').getCopy()
-                elif code == 407 and resp.countHFs('proxy-authenticate') != 0:
-                    event.challenge = resp.getHF('proxy-authenticate').getCopy()
-            if resp.countHFs('reason') != 0:
-                event.reason = resp.getHFBody('reason').getCopy()
+            try:
+                event.reason = resp.getHFBody('reason')
+            except:
+                pass
             self.ua.equeue.append(event)
         self.ua.disconnect_ts = resp.rtime
         return (UaStateFailed, self.ua.fail_cbs, resp.rtime, self.ua.origin, code)

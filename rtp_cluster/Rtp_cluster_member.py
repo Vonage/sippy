@@ -38,14 +38,12 @@ class Rtp_cluster_member(Rtp_proxy_client):
     on_state_change = None
     on_active_update = None
     timer = None
-    global_config = None
 
-    def __init__(self, name, global_config, *args, **kwargs):
+    def __init__(self, name, *args, **kwargs):
         self.call_id_map = []
         self.call_id_map_old = []
         self.name = name
-        self.global_config = global_config
-        Rtp_proxy_client.__init__(self, global_config, *args, **kwargs)
+        Rtp_proxy_client.__init__(self, *args, **kwargs)
         self.timer = Timeout(self.call_id_map_aging, 600, -1)
 
     def isYours(self, call_id):
@@ -71,20 +69,14 @@ class Rtp_cluster_member(Rtp_proxy_client):
 
     def go_online(self):
         #print 'go_online', self
-        if not self.online:
-            self.global_config['_sip_logger'].write('RTPproxy "%s" has changed ' \
-              'status from offline to online' % self.name)
-            if self.on_state_change != None:
-                self.on_state_change(self, True)
+        if not self.online and self.on_state_change != None:
+            self.on_state_change(self, True)
         Rtp_proxy_client.go_online(self)
 
     def go_offline(self):
         #print 'go_offline', self
-        if self.online:
-            self.global_config['_sip_logger'].write('RTPproxy "%s" has changed ' \
-              'status from online to offline' % self.name)
-            if self.on_state_change != None:
-                self.on_state_change(self, False)
+        if self.online and self.on_state_change != None:
+            self.on_state_change(self, False)
         Rtp_proxy_client.go_offline(self)
 
     def update_active(self, active_sessions):

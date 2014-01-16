@@ -49,15 +49,13 @@ from SipProxyAuthorization import SipProxyAuthorization
 from SipReplaces import SipReplaces
 from SipPAssertedIdentity import SipPAssertedIdentity
 from SipReason import SipReason
-from SipAllow import SipAllow
-from SipSupported import SipSupported
 from ESipHeaderCSV import ESipHeaderCSV
 
 _hf_types = (SipCSeq, SipCallId, SipFrom, SipTo, SipMaxForwards, SipVia, SipContentLength, \
              SipContentType, SipExpires, SipRecordRoute, SipRoute, SipContact, SipWWWAuthenticate, \
              SipAuthorization, SipServer, SipUserAgent, SipCiscoGUID, SipAlso, SipReferTo, \
              SipCCDiversion, SipReferredBy, SipProxyAuthenticate, SipProxyAuthorization, \
-             SipReplaces, SipPAssertedIdentity, SipReason, SipAllow, SipSupported)
+             SipReplaces, SipPAssertedIdentity, SipReason)
 
 hf_types = {}
 for hf_type in _hf_types:
@@ -99,10 +97,3 @@ class SipHeader(object):
         if not self.body.parsed:
             self.body.parse()
         return self.body
-
-    def getBCopy(self):
-        return self.body.getCopy()
-
-    def getCopy(self):
-        cself = self.__class__(name = self.name, body = self.body.getCopy())
-        return cself 

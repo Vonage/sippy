@@ -25,14 +25,13 @@
 from SipAddress import SipAddress
 from SipRoute import SipRoute
 from UaStateGeneric import UaStateGeneric
-from CCEvents import CCEventRing, CCEventConnect, CCEventFail, CCEventRedirect, \
-  CCEventDisconnect, CCEventPreConnect
+from CCEvents import CCEventRing, CCEventConnect, CCEventFail, CCEventRedirect, CCEventDisconnect
 
 class UacStateRinging(UaStateGeneric):
     sname = 'Ringing(UAC)'
     triedauth = False
 
-    def recvResponse(self, resp, tr):
+    def recvResponse(self, resp):
         body = resp.getBody()
         code, reason = resp.getSCode()
         scode = (code, reason, body)
@@ -63,70 +62,28 @@ class UacStateRinging(UaStateGeneric):
             self.ua.routes.reverse()
             if len(self.ua.routes) > 0:
                 if not self.ua.routes[0].getUrl().lr:
-                    self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
+                    self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget.getCopy())))
                     self.ua.rTarget = self.ua.routes.pop(0).getUrl()
                     self.ua.rAddr = self.ua.rTarget.getAddr()
-                elif self.ua.outbound_proxy != None:
-                    self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
-                    self.ua.rTarget = self.ua.routes[0].getUrl().getCopy()
-                    self.ua.rTarget.lr = False
-                    self.ua.rTarget.other = tuple()
-                    self.ua.rTarget.headers = tuple()
                 else:
                     self.ua.rAddr = self.ua.routes[0].getAddr()
             else:
                 self.ua.rAddr = self.ua.rTarget.getAddr()
-            tag = resp.getHFBody('to').getTag()
-            if tag == None:
-                print 'tag-less 200 OK, disconnecting'
-                scode = (502, 'Bad Gateway')
-                self.ua.equeue.append(CCEventFail(scode, rtime = resp.rtime, origin = self.ua.origin))
-                if resp.countHFs('contact') > 0:
-                    self.ua.rTarget = resp.getHFBody('contact').getUrl().getCopy()
-                self.ua.routes = [x.getCopy() for x in resp.getHFBodys('record-route')]
-                self.ua.routes.reverse()
-                if len(self.ua.routes) > 0:
-                    if not self.ua.routes[0].getUrl().lr:
-                        self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
-                        self.ua.rTarget = self.ua.routes.pop(0).getUrl()
-                        self.ua.rAddr = self.ua.rTarget.getAddr()
-                    elif self.ua.outbound_proxy != None:
-                        self.ua.routes.append(SipRoute(address = SipAddress(url = self.ua.rTarget)))
-                        self.ua.rTarget = self.ua.routes[0].getUrl().getCopy()
-                        self.ua.rTarget.lr = False
-                        self.ua.rTarget.other = tuple()
-                        self.ua.rTarget.headers = tuple()
-                    else:
-                        self.ua.rAddr = self.ua.routes[0].getAddr()
-                else:
-                    self.ua.rAddr = self.ua.rTarget.getAddr()
-                req = self.ua.genRequest('BYE')
-                self.ua.lCSeq += 1
-                self.ua.global_config['_sip_tm'].newTransaction(req, \
-                  laddress = self.ua.source_address)
-                return (UaStateFailed, self.ua.fail_cbs, resp.rtime, self.ua.origin, scode[0])
-            self.ua.rUri.setTag(tag)
-            if not self.ua.late_media or body == None:
-                self.ua.late_media = False
-                event = CCEventConnect(scode, rtime = resp.rtime, origin = self.ua.origin)
-                self.ua.startCreditTimer(resp.rtime)
-                self.ua.connect_ts = resp.rtime
-                rval = (UaStateConnected, self.ua.conn_cbs, resp.rtime, self.ua.origin)
-            else:
-                event = CCEventPreConnect(scode, rtime = resp.rtime, origin = self.ua.origin)
-                tr.uack = True
-                self.ua.pending_tr = tr
-                rval = (UaStateConnected,)
+            self.ua.rUri.setTag(resp.getHFBody('to').getTag())
+            event = CCEventConnect(scode, rtime = resp.rtime, origin = self.ua.origin)
+            self.ua.startCreditTimer(resp.rtime)
             if body != None:
                 if self.ua.on_remote_sdp_change != None:
                     self.ua.on_remote_sdp_change(body, lambda x: self.ua.delayed_remote_sdp_update(event, x))
-                    return rval
+                    self.ua.connect_ts = resp.rtime
+                    return (UaStateConnected, self.ua.conn_cbs, resp.rtime, self.ua.origin)
                 else:
                     self.ua.rSDP = body.getCopy()
             else:
                 self.ua.rSDP = None
             self.ua.equeue.append(event)
-            return rval
+            self.ua.connect_ts = resp.rtime
+            return (UaStateConnected, self.ua.conn_cbs, resp.rtime, self.ua.origin)
         if code in (301, 302) and resp.countHFs('contact') > 0:
             scode = (code, reason, body, resp.getHFBody('contact').getUrl().getCopy())
             self.ua.equeue.append(CCEventRedirect(scode, rtime = resp.rtime, origin = self.ua.origin))

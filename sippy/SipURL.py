@@ -43,7 +43,7 @@ class SipURL(object):
 
     def __init__(self, url = None, username = None, password = None, host = None, port = None, headers = None, \
       usertype = None, transport = None, ttl = None, maddr = None, method = None, tag = None, other = None, \
-      userparams = None, lr = False, relaxedparser = False):
+      userparams = None, lr = False):
         self.other = []
         self.userparams = []
         if url == None:
@@ -68,13 +68,9 @@ class SipURL(object):
                 self.other = other
             self.lr = lr
             return
-        sidx = url.find(':')
-        if sidx == 3 or (sidx != -1 and sidx < url.find('.')):
-            if not url.lower().startswith('sip:'):
-                raise ValueError('unsupported scheme: ' + url[:4])
-            url = url[4:]
-        # else:
-        #     scheme is missing, assume sip:
+        if not url.lower().startswith('sip:'):
+            raise ValueError('unsupported scheme: ' + url[:4])
+        url = url[4:]
         ear = url.find('@') + 1
         parts = url[ear:].split(';')
         userdomain, params = url[0:ear] + parts[0], parts[1:]
@@ -96,9 +92,7 @@ class SipURL(object):
             self.username = unquote(uparts[0])
         else:
             hostport = udparts[0]
-        if relaxedparser and len(hostport) == 0:
-            self.host = ''
-        elif hostport[0] == '[':
+        if hostport[0] == '[':
             # IPv6 host
             hpparts = hostport.split(']', 1)
             self.host = hpparts[0] + ']'
@@ -113,15 +107,7 @@ class SipURL(object):
                 self.host = hpparts[0]
             else:
                 self.host = hpparts[0]
-                try:
-                    self.port = int(hpparts[1])
-                except Exception, e:
-                    # XXX: some bad-ass devices send us port number twice
-                    # While not allowed by the RFC, deal with it
-                    portparts = hpparts[1].split(':', 1)
-                    if len(portparts) != 2 or portparts[0] != portparts[1]:
-                        raise e
-                    self.port = int(portparts[0])
+                self.port = int(hpparts[1])
         for p in params:
             if p == params[-1] and '?' in p:
                 self.headers = {}

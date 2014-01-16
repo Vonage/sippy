@@ -26,7 +26,6 @@ from SipFrom import SipFrom
 
 class SipRecordRoute(SipFrom):
     hf_names = ('record-route',)
-    relaxedparser = False
 
     def getCanName(self, name, compact = False):
         if name == 'record-route':
