@@ -31,8 +31,8 @@ from sippy.Udp_server import Udp_server
 from sippy.Rtp_proxy_cmd import Rtp_proxy_cmd
 
 def is_dst_local(destination_ip):
-    #if destination_ip == '192.168.22.11':
-    #    return True
+    if destination_ip.startswith('10.'):
+        return True
     return False
 
 class Broadcaster(object):
